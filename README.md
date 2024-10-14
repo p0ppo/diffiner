@@ -1,0 +1,2 @@
+# diffiner
+Diffiner GUI application
