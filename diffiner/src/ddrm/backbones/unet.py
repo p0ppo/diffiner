@@ -464,7 +464,9 @@ class UNet(nn.Module):
 
     @staticmethod
     def add_argparse_args(parser):
-        # TODO: add additional arguments of constructor, if you wish to modify them.
+        parser.add_argument("--param_d", type=str, default="checkpoint/dialogue.pt", help="Path to dialogue network")
+        parser.add_argument("--param_m", type=str, default="checkpoint/music.pt", help="Path to music network")
+        parser.add_argument("--param_e", type=str, default="checkpoint/effect.pt", help="Path to effect network")
         return parser
 
     def __init__(
@@ -489,6 +491,10 @@ class UNet(nn.Module):
         resblock_updown=False,
         use_new_attention_order=False,
         complex_conv=False,
+        sound_class=None,
+        param_d=None,
+        param_m=None,
+        param_e=None,
     ):
         super().__init__()
 
@@ -510,6 +516,11 @@ class UNet(nn.Module):
         self.num_heads = num_heads
         self.num_head_channels = num_head_channels
         self.num_heads_upsample = num_heads_upsample
+
+        self.sound_class = sound_class
+        self.param_d = param_d
+        self.param_m = param_m
+        self.param_e = param_e
 
         time_embed_dim = model_channels * 4
         self.time_embed = nn.Sequential(
@@ -779,3 +790,13 @@ class UNet(nn.Module):
             h = module(h, emb)
         h = h.type(x.dtype)
         return self.out(h)
+
+    def resolve_param_to_load(self):
+        if self.sound_class == "dialogue":
+            return self.param_d
+        elif self.sound_class == "music":
+            return self.param_m
+        elif self.sound_class == "effect":
+            return self.param_e
+        else:
+            raise ValueError(f"Unrecognized sound class: {self.sound_class}")

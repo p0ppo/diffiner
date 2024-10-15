@@ -1,5 +1,10 @@
 import soundfile as sf
 
+from ..util.register import Registry
+
+
+AudioRegistry = Registry("Audio")
+
 
 def read_audio(path, target_sr):
     wav, sr = sf.read(path)
@@ -24,6 +29,47 @@ def wav2stft(wav, fftsize, shiftsize, window):
             onesided=True,
             pad_mode="reflect")
     return stft
+
+
+def stft2wav(stft, fftsize, shiftsize, wsize, window):
+    # stft: [B, 2, F, T]
+    stft_comp = (stft[:, 0, :, :] + 1j * stft[:, 1, :, :]).squeeze()
+    wav = torch.istft(
+        stft_comp,
+        n_fft=fftsize,
+        hop_length=shiftsize,
+        win_length=wsize,
+        window=window,
+    )
+    return wav
+
+
+def fold_with_unit_size(tensor, length):
+    """
+    tensor: [1, 2, F, T]
+    output: [num_segments, 2, F, length]
+    """
+    orig_len = tensor.shape[-1]
+    if orig_len > length:
+        ratio_nf = int(np.ceil(orig_len / length))
+        tensor = tensor.repeat(1, 1, 1, ratio_nf)[..., :length*ratio_nf]
+    else:
+        ratio_nf = int(np.ceil(length / orig_len))
+        tensor = tensor.repeat(1, 1, 1, ratio_nf)[..., :length]
+    tensor = tensor.unfold(3, length, length)  # [1, 2, F, length, num_segments]
+    tensor[0].permute(3, 0, 1, 2)
+    return tensor
+
+
+def unfold_batch(tensor):
+    """
+    tensor: [B, 2, F, T]
+    output: [1, 2, F, T*B]
+    """
+    tensor = tensor.permute(1, 2, 3, 0)
+    C, F, T, B = tensor.shape
+    tensor = tensor.reshape(C, F, T*B).unsqueeze(0)
+    return tensor
 
 
 @AudioRegistry.register("base")
@@ -81,7 +127,7 @@ class BaseHandler():
                 requires_grad=False,
                 )
 
-    def get_audio(name, form, unfold=True):
+    def get_audio(self, name, form, fold=True):
         if name == "noisy":
             filename = self.noisy
         elif name == "proc":
@@ -103,20 +149,17 @@ class BaseHandler():
 
             self.orig_num_frames = stft.shape[-1]
 
-            if unfold:
-                if self.orig_num_frames > self.nf:
-                    ratio_nf = int(np.ceil(self.orig_num_frames / self.nf))
-                    stft = stft.repeat(1, 1, 1, ratio_nf)[..., :self.nf*ratio_nf]
-                else:
-                    ratio_nf = int(np.ceil(self.nf / self.orig_num_frames))
-                    stft = stft.repeat(1, 1, 1, ratio_nf)[..., :self.nf]
-
-                stft = stft.unfold(3, self.nf, self.nf)  # [1, 2, F, window_size, num_windows]
-                stft[0].permute(3, 0, 1, 2)
+            if fold:
+                stft = fold_with_unit_size(stft, self.nf)
             return stft
-
-
-            
-
-            return stft
-
+    
+    def save(self, path, tensor, form="stft"):
+        if tensor.device != "cpu":
+            tensor = tensor.to("cpu")
+        if form == "wav":
+            wav = tensor.detach().numpy()
+        elif form == "stft":
+            stft = unfold_batch(stft)
+            wav = stft2wav(stft, self.fftsize, self.shiftsize, self.wsize, self.window)
+            wav = wav.detach().numpy()
+            write_audio(path, wav, **self.noisy_info)
