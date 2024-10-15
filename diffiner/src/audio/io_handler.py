@@ -144,7 +144,7 @@ class BaseHandler():
         elif form == "stft":
             stft = wav2stft(audio, self.fftsize, self.shiftsize, self.window)
             stft = stft.permute(0, 3, 1, 2)  # [1, 2, F, T]
-            stft = stft[:, :, 1:, :]  # Remove DC
+            stft = self.remove_dc(stft)  # Remove DC
             # TODO: handle stereo input
 
             self.orig_num_frames = stft.shape[-1]
@@ -153,7 +153,8 @@ class BaseHandler():
                 stft = fold_with_unit_size(stft, self.nf)
             return stft
     
-    def save(self, path, tensor, form="stft"):
+    def save(self, tensor, filename, form="stft"):
+        path = os.path.join(self.output, filename)
         if tensor.device != "cpu":
             tensor = tensor.to("cpu")
         if form == "wav":
@@ -163,3 +164,17 @@ class BaseHandler():
             wav = stft2wav(stft, self.fftsize, self.shiftsize, self.wsize, self.window)
             wav = wav.detach().numpy()
             write_audio(path, wav, **self.noisy_info)
+    
+    def remove_dc(self, tensor):
+        # tensor: [B, 2, F, T]
+        return tensor[:, :, 1:, :]
+
+    def add_dc(self, tensor):
+        # tensor: [B, 2, F, T]
+        device = tensor.device
+        B, C, F, T = tensor.shape
+        tensor = torch.cat((
+            torch.zeros(B, 2, 1, T).to(device),
+            tensor
+        ), dim=2)
+        return tensor
