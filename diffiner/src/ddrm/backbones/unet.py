@@ -1,4 +1,6 @@
 from abc import abstractmethod
+import os
+from dotenv import load_dotenv
 
 import math
 
@@ -6,6 +8,11 @@ import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+load_dotenv()
+WEIGHTS_DIR = os.getenv("WEIGHTS_DIR")
+
 
 #from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .nn import (
@@ -428,9 +435,9 @@ class UNet(nn.Module):
 
     @staticmethod
     def add_argparse_args(parser):
-        parser.add_argument("--param_d", type=str, default="./src/checkpoint/dialogue.pt", help="Path to dialogue network")
-        parser.add_argument("--param_m", type=str, default="./src/checkpoint/music.pt", help="Path to music network")
-        parser.add_argument("--param_e", type=str, default="./src/checkpoint/effect.pt", help="Path to effect network")
+        parser.add_argument("--param_d", type=str, default=os.path.join(WEIGHTS_DIR, "dialogue.pt"), help="Path to dialogue network")
+        parser.add_argument("--param_m", type=str, default=os.path.join(WEIGHTS_DIR, "music.pt"), help="Path to music network")
+        parser.add_argument("--param_e", type=str, default=os.path.join(WEIGHTS_DIR, "effect.pt"), help="Path to effect network")
         return parser
 
     def __init__(
@@ -676,8 +683,6 @@ class UNet(nn.Module):
             hs.append(h)
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
-            #print(h.shape)
-            #print(hs[-1].shape)
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
         h = h.type(x.dtype)
