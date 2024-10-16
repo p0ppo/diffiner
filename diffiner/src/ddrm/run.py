@@ -6,6 +6,7 @@ from ..audio.io_handler import AudioRegistry
 from .backbones.shared import BackboneRegistry
 from .backbones import dist_util
 from .diffusion import DiffusionRegistry
+from .informed_denoiser import get_informed_denoiser
 
 
 def _run(device, io_handler, model, diffusion):

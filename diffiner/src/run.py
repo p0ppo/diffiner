@@ -6,6 +6,7 @@ from .audio.io_handler import AudioRegistry
 from .ddrm.backbones.shared import BackboneRegistry
 from .ddrm.backbones import dist_util
 from .ddrm.diffusion import DiffusionRegistry
+from .ddrm.informed_denoiser import get_informed_denoiser
 
 
 def get_argparse_groups(args, parser):
@@ -18,7 +19,7 @@ def get_argparse_groups(args, parser):
 
 def _run(device, io_handler, model, diffusion):
     model.load_state_dict(
-        dist_util.load_state_dict(model.resolve_param_to_load(), map_location="cpu")
+        dist_util.load_state_dict(model.resolve_param_to_load(), map_location="cpu", weights_only=True)
     )
     model.to(device)
     model.eval()
@@ -43,8 +44,8 @@ def _run(device, io_handler, model, diffusion):
         noise_map,
         clip_denoised=False,
         model_kwargs={},
-        etaA=eta_a,
-        etaB=eta_b,
+        etaA_ddrm=eta_a,
+        etaB_ddrm=eta_b,
     )
 
     noisy = io_handler.add_dc(noisy)
