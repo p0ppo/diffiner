@@ -119,6 +119,11 @@ class GaussianDiffusion:
                               model so that they are always scaled like in the
                               original paper (0 to 1000).
     """
+    @staticmethod
+    def add_argparse_args(parser):
+        parser.add_argument("--steps", type=int, default=1000)
+        parser.add_argument("--timestep-respacing", type=str, default="ddim200")
+        return parser
 
     def __init__(
         self,
@@ -1005,7 +1010,7 @@ class SpacedDiffusion(GaussianDiffusion):
     @staticmethod
     def add_argparse_args(parser):
         parser.add_argument("--steps", type=int, default=1000)
-        parser.add_argument("--timestep-respacing", type="str", default="ddim200")
+        parser.add_argument("--timestep-respacing", type=str, default="ddim200")
         return parser
 
 
@@ -1032,6 +1037,7 @@ class SpacedDiffusion(GaussianDiffusion):
 
         base_diffusion = GaussianDiffusion(
                     steps,
+                    betas,
                     learn_sigma,
                     sigma_small,
                     noise_schedule,

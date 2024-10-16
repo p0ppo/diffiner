@@ -89,14 +89,23 @@ class Upsample(nn.Module):
                  upsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2, out_channels=None):
+    def __init__(
+        self, channels, use_conv, dims=2, out_channels=None, complex_conv=False
+    ):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels or channels
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
-            self.conv = conv_nd(dims, self.channels, self.out_channels, 3, padding=1)
+            self.conv = conv_nd(
+                dims,
+                self.channels,
+                self.out_channels,
+                3,
+                padding=1,
+                complex_conv=complex_conv,
+            )
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -121,7 +130,9 @@ class Downsample(nn.Module):
                  downsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2, out_channels=None):
+    def __init__(
+        self, channels, use_conv, dims=2, out_channels=None, complex_conv=False
+    ):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels or channels
@@ -130,7 +141,13 @@ class Downsample(nn.Module):
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
             self.op = conv_nd(
-                dims, self.channels, self.out_channels, 3, stride=stride, padding=1
+                dims,
+                self.channels,
+                self.out_channels,
+                3,
+                stride=stride,
+                padding=1,
+                complex_conv=complex_conv,
             )
         else:
             assert self.channels == self.out_channels
@@ -170,6 +187,7 @@ class ResBlock(TimestepBlock):
         use_checkpoint=False,
         up=False,
         down=False,
+        complex_conv=False,
     ):
         super().__init__()
         self.channels = channels
@@ -183,17 +201,24 @@ class ResBlock(TimestepBlock):
         self.in_layers = nn.Sequential(
             normalization(channels),
             nn.SiLU(),
-            conv_nd(dims, channels, self.out_channels, 3, padding=1),
+            conv_nd(
+                dims,
+                channels,
+                self.out_channels,
+                3,
+                padding=1,
+                complex_conv=complex_conv,
+            ),
         )
 
         self.updown = up or down
 
         if up:
-            self.h_upd = Upsample(channels, False, dims)
-            self.x_upd = Upsample(channels, False, dims)
+            self.h_upd = Upsample(channels, False, dims, complex_conv=complex_conv)
+            self.x_upd = Upsample(channels, False, dims, complex_conv=complex_conv)
         elif down:
-            self.h_upd = Downsample(channels, False, dims)
-            self.x_upd = Downsample(channels, False, dims)
+            self.h_upd = Downsample(channels, False, dims, complex_conv=complex_conv)
+            self.x_upd = Downsample(channels, False, dims, complex_conv=complex_conv)
         else:
             self.h_upd = self.x_upd = nn.Identity()
 
@@ -217,10 +242,21 @@ class ResBlock(TimestepBlock):
             self.skip_connection = nn.Identity()
         elif use_conv:
             self.skip_connection = conv_nd(
-                dims, channels, self.out_channels, 3, padding=1
+                dims,
+                channels,
+                self.out_channels,
+                3,
+                padding=1,
+                complex_conv=complex_conv,
             )
         else:
-            self.skip_connection = conv_nd(dims, channels, self.out_channels, 1)
+            self.skip_connection = conv_nd(
+                dims,
+                channels,
+                self.out_channels,
+                1,
+                complex_conv=complex_conv,
+            )
 
     def forward(self, x, emb):
         """
@@ -250,7 +286,7 @@ class ResBlock(TimestepBlock):
             out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
             scale, shift = th.chunk(emb_out, 2, dim=1)
             h = out_norm(h) * (1 + scale) + shift
-            h = out_rest(h)
+            h = out_rest(h)  # [1, 128, 256, 256]
         else:
             h = h + emb_out
             h = self.out_layers(h)
@@ -433,28 +469,6 @@ class UNet(nn.Module):
         parser.add_argument("--param_e", type=str, default="./src/checkpoint/effect.pt", help="Path to effect network")
         return parser
 
-    #def __init__(
-    #    self,
-    #    image_size,
-    #    in_channels,
-    #    model_channels,
-    #    out_channels,
-    #    num_res_blocks,
-    #    attention_resolutions,
-    #    dropout=0,
-    #    channel_mult=(1, 2, 4, 8),
-    #    conv_resample=True,
-    #    dims=2,
-    #    num_classes=None,
-    #    use_checkpoint=False,
-    #    use_fp16=False,
-    #    num_heads=1,
-    #    num_head_channels=-1,
-    #    num_heads_upsample=-1,
-    #    use_scale_shift_norm=False,
-    #    resblock_updown=False,
-    #    use_new_attention_order=False,
-    #):
     def __init__(
         self,
         image_size=512,
@@ -536,10 +550,21 @@ class UNet(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        complex_conv=complex_conv,
                     )
                 ]
                 ch = int(mult * model_channels)
-                if ds in attention_resolutions:
+                if ds in attention_resolutions and complex_conv:
+                    layers.append(
+                        ComplexAttentionBlock(
+                            ch,
+                            use_checkpoint=use_checkpoint,
+                            num_heads=num_heads,
+                            num_head_channels=num_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
+                elif ds in attention_resolutions and not (complex_conv):
                     layers.append(
                         AttentionBlock(
                             ch,
@@ -565,10 +590,15 @@ class UNet(nn.Module):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             down=True,
+                            complex_conv=complex_conv,
                         )
                         if resblock_updown
                         else Downsample(
-                            ch, conv_resample, dims=dims, out_channels=out_ch
+                            ch,
+                            conv_resample,
+                            dims=dims,
+                            out_channels=out_ch,
+                            complex_conv=complex_conv,
                         )
                     )
                 )
@@ -577,31 +607,62 @@ class UNet(nn.Module):
                 ds *= 2
                 self._feature_size += ch
 
-        self.middle_block = TimestepEmbedSequential(
-            ResBlock(
-                ch,
-                time_embed_dim,
-                dropout,
-                dims=dims,
-                use_checkpoint=use_checkpoint,
-                use_scale_shift_norm=use_scale_shift_norm,
-            ),
-            AttentionBlock(
-                ch,
-                use_checkpoint=use_checkpoint,
-                num_heads=num_heads,
-                num_head_channels=num_head_channels,
-                use_new_attention_order=use_new_attention_order,
-            ),
-            ResBlock(
-                ch,
-                time_embed_dim,
-                dropout,
-                dims=dims,
-                use_checkpoint=use_checkpoint,
-                use_scale_shift_norm=use_scale_shift_norm,
-            ),
-        )
+        if not (complex_conv):
+            self.middle_block = TimestepEmbedSequential(
+                ResBlock(
+                    ch,
+                    time_embed_dim,
+                    dropout,
+                    dims=dims,
+                    use_checkpoint=use_checkpoint,
+                    use_scale_shift_norm=use_scale_shift_norm,
+                    complex_conv=complex_conv,
+                ),
+                AttentionBlock(
+                    ch,
+                    use_checkpoint=use_checkpoint,
+                    num_heads=num_heads,
+                    num_head_channels=num_head_channels,
+                    use_new_attention_order=use_new_attention_order,
+                ),
+                ResBlock(
+                    ch,
+                    time_embed_dim,
+                    dropout,
+                    dims=dims,
+                    use_checkpoint=use_checkpoint,
+                    use_scale_shift_norm=use_scale_shift_norm,
+                    complex_conv=complex_conv,
+                ),
+            )
+        else:
+            self.middle_block = TimestepEmbedSequential(
+                ResBlock(
+                    ch,
+                    time_embed_dim,
+                    dropout,
+                    dims=dims,
+                    use_checkpoint=use_checkpoint,
+                    use_scale_shift_norm=use_scale_shift_norm,
+                    complex_conv=complex_conv,
+                ),
+                ComplexAttentionBlock(
+                    ch,
+                    use_checkpoint=use_checkpoint,
+                    num_heads=num_heads,
+                    num_head_channels=num_head_channels,
+                    use_new_attention_order=use_new_attention_order,
+                ),
+                ResBlock(
+                    ch,
+                    time_embed_dim,
+                    dropout,
+                    dims=dims,
+                    use_checkpoint=use_checkpoint,
+                    use_scale_shift_norm=use_scale_shift_norm,
+                    complex_conv=complex_conv,
+                ),
+            )
         self._feature_size += ch
 
         self.output_blocks = nn.ModuleList([])
@@ -617,10 +678,21 @@ class UNet(nn.Module):
                         dims=dims,
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
+                        complex_conv=complex_conv,
                     )
                 ]
                 ch = int(model_channels * mult)
-                if ds in attention_resolutions:
+                if ds in attention_resolutions and complex_conv:
+                    layers.append(
+                        ComplexAttentionBlock(
+                            ch,
+                            use_checkpoint=use_checkpoint,
+                            num_heads=num_heads_upsample,
+                            num_head_channels=num_head_channels,
+                            use_new_attention_order=use_new_attention_order,
+                        )
+                    )
+                elif ds in attention_resolutions and not (complex_conv):
                     layers.append(
                         AttentionBlock(
                             ch,
@@ -642,9 +714,16 @@ class UNet(nn.Module):
                             use_checkpoint=use_checkpoint,
                             use_scale_shift_norm=use_scale_shift_norm,
                             up=True,
+                            complex_conv=complex_conv,
                         )
                         if resblock_updown
-                        else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch)
+                        else Upsample(
+                            ch,
+                            conv_resample,
+                            dims=dims,
+                            out_channels=out_ch,
+                            complex_conv=complex_conv,
+                        )
                     )
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
@@ -653,24 +732,33 @@ class UNet(nn.Module):
         self.out = nn.Sequential(
             normalization(ch),
             nn.SiLU(),
-            zero_module(conv_nd(dims, input_ch, out_channels, 3, padding=1)),
+            zero_module(
+                conv_nd(
+                    dims,
+                    input_ch,
+                    out_channels,
+                    3,
+                    padding=1,
+                    complex_conv=complex_conv,
+                )
+            ),
         )
 
-    def convert_to_fp16(self):
-        """
-        Convert the torso of the model to float16.
-        """
-        self.input_blocks.apply(convert_module_to_f16)
-        self.middle_block.apply(convert_module_to_f16)
-        self.output_blocks.apply(convert_module_to_f16)
+    #def convert_to_fp16(self):
+    #    """
+    #    Convert the torso of the model to float16.
+    #    """
+    #    self.input_blocks.apply(convert_module_to_f16)
+    #    self.middle_block.apply(convert_module_to_f16)
+    #    self.output_blocks.apply(convert_module_to_f16)
 
-    def convert_to_fp32(self):
-        """
-        Convert the torso of the model to float32.
-        """
-        self.input_blocks.apply(convert_module_to_f32)
-        self.middle_block.apply(convert_module_to_f32)
-        self.output_blocks.apply(convert_module_to_f32)
+    #def convert_to_fp32(self):
+    #    """
+    #    Convert the torso of the model to float32.
+    #    """
+    #    self.input_blocks.apply(convert_module_to_f32)
+    #    self.middle_block.apply(convert_module_to_f32)
+    #    self.output_blocks.apply(convert_module_to_f32)
 
     def forward(self, x, timesteps, y=None, **kwargs):
         """
@@ -698,8 +786,6 @@ class UNet(nn.Module):
             hs.append(h)
         h = self.middle_block(h, emb)
         for module in self.output_blocks:
-            #print(h.shape)
-            #print(hs[-1].shape)
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
         h = h.type(x.dtype)

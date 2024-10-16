@@ -2,13 +2,13 @@ import os
 import sys
 import dotenv
 import click
-import argparse
-from argparse import ArgumentParser
+
+from .ddrm.run import run
 
 
 def main():
-    parser = ArgumentParser()
-    
+    # Temporary, you need to implement interactive interface
+    run()
 
 
 @click.command(name="cui")

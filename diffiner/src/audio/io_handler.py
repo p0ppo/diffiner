@@ -1,6 +1,8 @@
 import soundfile as sf
+import torch
+import torch.nn as nn
 
-from ..util.register import Registry
+from ..util.registry import Registry
 
 
 AudioRegistry = Registry("Audio")
@@ -154,7 +156,8 @@ class BaseHandler():
             return stft
     
     def save(self, tensor, filename, form="stft"):
-        path = os.path.join(self.output, filename)
+        path = os.path.join(self.output, self.sound_class, filename)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         if tensor.device != "cpu":
             tensor = tensor.to("cpu")
         if form == "wav":

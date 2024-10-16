@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "diffiner"
+version = "0.1.0"
+description = ""
+authors = ["p0ppo"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.10"
+blobfile = "^3.0.0"
+click = "^8.1.7"
+soundfile = "^0.12.1"
+numpy = "<=1.24.4"
+python-dotenv = "^1.0.1"
+mpi4py = "^4.0.1"
+torch = "^2.4.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

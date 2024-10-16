@@ -2,10 +2,18 @@ import os
 import argparse
 from argparse import ArgumentParser
 
-from ..audio.io_handler import AudioRegistry
-from .backbones.shared import BackboneRegistry
-from .backbones import dist_util
-from .diffusion import DiffusionRegistry
+from .audio.io_handler import AudioRegistry
+from .ddrm.backbones.shared import BackboneRegistry
+from .ddrm.backbones import dist_util
+from .ddrm.diffusion import DiffusionRegistry
+
+
+def get_argparse_groups(args, parser):
+     groups = {}
+     for group in parser._action_groups:
+          group_dict = { a.dest: getattr(args, a.dest, None) for a in group._group_actions }
+          groups[group.title] = argparse.Namespace(**group_dict)
+     return groups
 
 
 def _run(device, io_handler, model, diffusion):
@@ -77,20 +85,20 @@ def run():
     )
 
     args = parser.parse_args()
-    arg_groups = get_argparse_groups(parser)
+    arg_groups = get_argparse_groups(args, parser)
 
     io_handler = audio_cls(
         **vars(arg_groups["Audio"])
     )
     model = backbone_cls(
-        sound_class=args.groups["Audio"].sound_class,
+        sound_class=arg_groups["Audio"].sound_class,
         **vars(arg_groups["Backbone"])
     )
     diffusion = diffusion_cls(
         **vars(arg_groups["Diffusion"])
     )
 
-    run(device, io_handler, model, diffusion)
+    _run(device, io_handler, model, diffusion)
 
 
 if __name__ == "__main__":
